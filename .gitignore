@@ -39,3 +39,5 @@ CLAUDE.local.md
 secrets.env
 *.prompt.txt
 run-brain-fix.sh
+headers_auth.json
+headers_auth.json

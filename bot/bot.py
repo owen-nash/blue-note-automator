@@ -53,6 +53,9 @@ class JazzBot(discord.Client):
             print(f"Webhook Feedback Error: {e}")
             await interaction.followup.send("Failed to record feedback.", ephemeral=True)
 
+        emoji = "✅" if rating == "like" else "❌"
+        await interaction.message.edit(content=f"{emoji} **{album}** by {artist}", view=None)
+
 bot = JazzBot()
 
 # --- FEEDBACK BUTTONS ---
@@ -100,7 +103,11 @@ async def discover_command(interaction: discord.Interaction):
             embed = discord.Embed(title=f"🎼 {m['album']}", description=f"**{m['new_artist']}**", color=3447003)
             embed.add_field(name="🤝 Connection", value=m['connection'], inline=False)
             if m.get("personnel"):
-                embed.add_field(name="🎹 Personnel", value=", ".join(m['personnel']), inline=False)
+                personnel = m['personnel']
+                if isinstance(personnel, list):
+                    embed.add_field(name="🎹 Personnel", value=", ".join(personnel), inline=False)
+                else:
+                    embed.add_field(name="🎹 Personnel", value=personnel, inline=False)
             embed.add_field(name="🎧 Listen", value=f"[YouTube Music]({m['ytm_link']})", inline=False)
             await interaction.channel.send(embed=embed)
             view = FeedbackView(m['new_artist'], m['album'])

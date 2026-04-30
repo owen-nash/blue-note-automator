@@ -2,6 +2,7 @@ import modal
 import os
 import json
 import random
+from datetime import datetime, timedelta
 from typing import List, Optional
 
 MB_USER_AGENT = ("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
@@ -59,11 +60,40 @@ async def _run_discovery(user_id: str):
 
     all_memories = m0.get_all(user_id=user_id)
     taste_entries = []
+    sent_entries = []
     for mem in all_memories:
         text = mem.get("text", "")
         if text.startswith("Artist: ") or text.startswith("Liked:") or text.startswith("Disliked:"):
             taste_entries.append(text)
+        elif text.startswith("Sent:"):
+            sent_entries.append(text)
     taste_context = "\n".join(taste_entries) if taste_entries else "Focus on classic hard-bop and post-bop jazz."
+
+    three_months_ago = datetime.now() - timedelta(days=90)
+    re_sendable = set()
+    for sent_text in sent_entries:
+        try:
+            parts = sent_text.replace("Sent: ", "", 1).split(" by ", 1)
+            if len(parts) >= 2:
+                album_name = parts[0].strip()
+                rest = parts[1].strip()
+                if rest.endswith(")") and "(" in rest:
+                    artist_name = rest[:rest.rfind("(")].strip()
+                    date_str = rest[rest.rfind("(")+1:rest.rfind(")")]
+                    sent_date = datetime.strptime(date_str, "%Y-%m-%d")
+                    if sent_date < three_months_ago:
+                        has_feedback = any(
+                            album_name in t for t in taste_entries
+                        )
+                        if not has_feedback:
+                            re_sendable.add(sent_text)
+        except:
+            pass
+
+    sent_for_prompt = [s for s in sent_entries if s not in re_sendable]
+    sent_context = ""
+    if sent_for_prompt:
+        sent_context = "\n\nPREVIOUSLY SENT - DO NOT RECOMMEND:\n" + "\n".join(sent_for_prompt)
 
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
 
@@ -73,9 +103,10 @@ async def _run_discovery(user_id: str):
         "Generate 5 novel but authentic discovery directions they have not heard yet "
         "but would likely love based on their taste. Each direction should be a "
         "specific seed_artist (a known artist the user may not have explored) and a "
-        "new_artist/album that connects to it. Avoid obvious names already in the taste profile.\n\n"
-        f"Taste Profile:\n{taste_context[:3000]}\n\n"
-        "JSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
+        "new_artist/album that connects to it. Avoid obvious names already in the taste profile."
+        f"\n\nTaste Profile:\n{taste_context[:3000]}"
+        f"{sent_context}"
+        "\n\nJSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
     )
 
     res = client.chat.completions.create(
@@ -101,6 +132,13 @@ async def _run_discovery(user_id: str):
                     except: pass
             if len(verified) >= 5: break
         except: continue
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    for m in verified:
+        try:
+            m0.add(f"Sent: {m['album']} by {m['new_artist']} ({today_str})", user_id=user_id)
+        except:
+            pass
 
     if not verified:
         raise Exception("No verified albums found.")
@@ -300,6 +338,14 @@ async def sync_taste():
         text = mem.get("text", "")
         if text.startswith("Artist: "):
             existing_artists.add(text.split("\n")[0].replace("Artist: ", "").strip())
+        elif text.startswith("Sent:"):
+            try:
+                sent_artist = text.replace("Sent: ", "", 1).split(" by ", 1)[1].strip()
+                if "(" in sent_artist:
+                    sent_artist = sent_artist[:sent_artist.rfind("(")].strip()
+                existing_artists.add(sent_artist)
+            except:
+                pass
 
     for artist_name in sorted(all_artists):
         if artist_name in existing_artists:
@@ -344,7 +390,11 @@ async def daily_discover():
                     ]
                 }
                 if m.get("personnel"):
-                    embed_payload["fields"].append({"name": "🎹 Personnel", "value": ", ".join(m['personnel']), "inline": False})
+                    personnel = m['personnel']
+                    if isinstance(personnel, list):
+                        embed_payload["fields"].append({"name": "🎹 Personnel", "value": ", ".join(personnel), "inline": False})
+                    else:
+                        embed_payload["fields"].append({"name": "🎹 Personnel", "value": personnel, "inline": False})
                 embed_payload["fields"].append({"name": "🎧 Listen", "value": f"[YouTube Music]({m['ytm_link']})", "inline": False})
 
                 components = [{

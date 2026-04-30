@@ -32,6 +32,24 @@ class JazzBot(discord.Client):
         print(f"Logged in as: {self.user}")
         print(f"Time: {datetime.now()}")
 
+    async def on_interaction(self, interaction: discord.Interaction):
+        if interaction.type != discord.InteractionType.component:
+            return
+        custom_id = interaction.data.get("custom_id", "")
+        if custom_id.startswith("like:") or custom_id.startswith("dislike:"):
+            parts = custom_id.split(":", 2)
+            if len(parts) != 3:
+                return
+            rating, artist, album = parts
+            await interaction.response.defer()
+            feedback_url = MODAL_DISCOVER_URL.replace("/discover", "/feedback")
+            payload = {"artist": artist, "album": album, "rating": rating, "user_id": str(interaction.user.id)}
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    await client.post(feedback_url, json=payload)
+            except Exception as e:
+                print(f"Webhook Feedback Error: {e}")
+
 bot = JazzBot()
 
 # --- FEEDBACK BUTTONS ---

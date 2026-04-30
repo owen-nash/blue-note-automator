@@ -58,7 +58,7 @@ async def _run_discovery(user_id: str):
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
 
-    all_memories = m0.get_all(user_id=user_id)
+    all_memories = m0.get_all(filters={"user_id": user_id})
     taste_entries = []
     sent_entries = []
     for mem in all_memories:
@@ -128,7 +128,7 @@ async def _run_discovery(user_id: str):
                 if ytm_search:
                     m['ytm_link'] = f"https://music.youtube.com/browse/{ytm_search[0]['browseId']}"
                     verified.append(m)
-                    try: m0.add(f"Discovered {m['album']}", user_id=user_id)
+                    try: m0.add(f"Discovered {m['album']}", filters={"user_id": user_id})
                     except: pass
             if len(verified) >= 5: break
         except: continue
@@ -136,7 +136,7 @@ async def _run_discovery(user_id: str):
     today_str = datetime.now().strftime("%Y-%m-%d")
     for m in verified:
         try:
-            m0.add(f"Sent: {m['album']} by {m['new_artist']} ({today_str})", user_id=user_id)
+            m0.add(f"Sent: {m['album']} by {m['new_artist']} ({today_str})", filters={"user_id": user_id})
         except:
             pass
 
@@ -187,7 +187,7 @@ def enrich_taste_profile(artist_name: str):
             f"while constantly pushing forward. Listening to {artist_name} "
             f"reveals a masterful command of texture, timing, and emotion."
         )
-        m0.add(paragraph, user_id=user_id)
+        m0.add(paragraph, filters={"user_id": user_id})
         print(f"Ingested: {artist_name} [{genre_str}]")
     except Exception as e:
         print(f"Error ingesting {artist_name}: {e}")
@@ -234,7 +234,7 @@ async def feedback(payload: dict):
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
         label = "Liked" if rating == "like" else "Disliked"
         text = f"{label}: {artist} - {album}"
-        m0.add(text, user_id=user_id or os.environ["TASTE_USER_ID"])
+        m0.add(text, filters={"user_id": user_id or os.environ["TASTE_USER_ID"]})
         print(f"Feedback recorded: {text}")
     except Exception as e:
         print(f"Feedback Mem0 Error: {e}")
@@ -282,7 +282,7 @@ async def curate_herald(payload: dict):
     try:
         from mem0 import MemoryClient
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-        results = m0.search(query="jazz taste profile", user_id=os.environ["TASTE_USER_ID"], limit=10)
+        results = m0.search(query="jazz taste profile", filters={"user_id": os.environ["TASTE_USER_ID"]}, limit=10)
         raw = "\n".join([r["text"] for r in results]) if results else ""
         taste_context = raw[:2000]
     except:
@@ -332,7 +332,7 @@ async def sync_taste():
     print(f"Found {len(all_artists)} unique artists across all scrobbles")
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-    existing = m0.get_all(user_id=taste_user_id)
+    existing = m0.get_all(filters={"user_id": taste_user_id})
     existing_artists = set()
     for mem in existing:
         text = mem.get("text", "")
@@ -428,7 +428,7 @@ async def create_daily_playlist():
     # 1. Query Mem0 for taste entries
     try:
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-        all_memories = m0.get_all(user_id=user_id)
+        all_memories = m0.get_all(filters={"user_id": user_id})
     except Exception as e:
         print(f"Mem0 query failed: {e}")
         return
@@ -602,7 +602,7 @@ async def weekly_herald():
         try:
             from mem0 import MemoryClient
             m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-            results = m0.search(query="jazz taste profile", user_id=os.environ["TASTE_USER_ID"], limit=10)
+            results = m0.search(query="jazz taste profile", filters={"user_id": os.environ["TASTE_USER_ID"]}, limit=10)
             raw = "\n".join([r["text"] for r in results]) if results else ""
             taste_context = raw[:2000]
         except:

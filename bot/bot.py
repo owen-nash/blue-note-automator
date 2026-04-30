@@ -60,10 +60,33 @@ bot = JazzBot()
 class FeedbackView(discord.ui.View):
     def __init__(self, artist: str, album: str):
         super().__init__(timeout=None)
+        self.artist = artist
+        self.album = album
         like_btn = discord.ui.Button(style=discord.ButtonStyle.success, emoji="👍", custom_id=f"like:{artist}:{album}")
+        like_btn.callback = self._on_feedback
         self.add_item(like_btn)
         dislike_btn = discord.ui.Button(style=discord.ButtonStyle.danger, emoji="👎", custom_id=f"dislike:{artist}:{album}")
+        dislike_btn.callback = self._on_feedback
         self.add_item(dislike_btn)
+
+    async def _on_feedback(self, interaction: discord.Interaction):
+        custom_id = interaction.data.get("custom_id", "")
+        parts = custom_id.split(":", 2)
+        if len(parts) != 3:
+            return await interaction.response.send_message("Invalid feedback format.", ephemeral=True)
+        rating, artist, album = parts
+        if not MODAL_DISCOVER_URL:
+            return await interaction.response.send_message("Feedback service unavailable.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        feedback_url = MODAL_DISCOVER_URL.replace("/discover", "/feedback")
+        payload = {"artist": artist, "album": album, "rating": rating, "user_id": str(interaction.user.id)}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(feedback_url, json=payload)
+            await interaction.followup.send("Feedback recorded!", ephemeral=True)
+        except Exception as e:
+            print(f"View Feedback Error: {e}")
+            await interaction.followup.send("Failed to record feedback.", ephemeral=True)
 
 # --- DISCOVERY COMMAND ---
 
@@ -75,10 +98,8 @@ async def discover_command(interaction: discord.Interaction):
     try:
         payload = {
             "user_id": os.getenv("TASTE_USER_ID"),
-            "artists": ["Miles Davis", "John Coltrane", "Billy Hart", "Elvin Jones", "Tony Williams"]
         }
         
-        # Use httpx.AsyncClient to avoid blocking the heartbeat
         async with httpx.AsyncClient(timeout=120.0) as client:
             res = await client.post(MODAL_DISCOVER_URL, json=payload)
             
@@ -87,10 +108,8 @@ async def discover_command(interaction: discord.Interaction):
             
         data = res.json()
         
-        # 1. Post Narrative
         await interaction.followup.send(data["drafted_message"])
         
-        # 2. Post technical embeds
         for m in data["missions"]:
             embed = discord.Embed(title=f"🎼 {m['album']}", description=f"**{m['new_artist']}**", color=3447003)
             embed.add_field(name="🤝 Connection", value=m['connection'], inline=False)

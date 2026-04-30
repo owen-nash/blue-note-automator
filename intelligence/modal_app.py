@@ -46,7 +46,7 @@ def extract_json(text: str):
 
 # --- DISCOVERY HELPER ---
 
-async def _run_discovery(artists: list, user_id: str):
+async def _run_discovery(user_id: str):
     from openai import OpenAI
     from mem0 import MemoryClient
     from ytmusicapi import YTMusic
@@ -55,13 +55,27 @@ async def _run_discovery(artists: list, user_id: str):
     musicbrainzngs.set_useragent(*MB_USER_AGENT)
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-    results = m0.search(query="jazz taste profile", user_id=user_id, limit=5)
-    raw_text = "\n".join([r["text"] for r in results]) if results else ""
-    soul_context = raw_text[:2000] if raw_text else "Focus on classic hard-bop."
+
+    all_memories = m0.get_all(user_id=user_id)
+    taste_entries = []
+    for mem in all_memories:
+        text = mem.get("text", "")
+        if text.startswith("Artist: ") or text.startswith("Liked:") or text.startswith("Disliked:"):
+            taste_entries.append(text)
+    taste_context = "\n".join(taste_entries) if taste_entries else "Focus on classic hard-bop and post-bop jazz."
 
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
 
-    sonnet_prompt = f"Historian persona. User soul: {soul_context}. Current: {artists}. Pick 5 links. JSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
+    sonnet_prompt = (
+        "Historian persona. Analyze the user's complete jazz taste profile below. "
+        "Identify patterns in their preferred artists, genres, and styles. "
+        "Generate 5 novel but authentic discovery directions they have not heard yet "
+        "but would likely love based on their taste. Each direction should be a "
+        "specific seed_artist (a known artist the user may not have explored) and a "
+        "new_artist/album that connects to it. Avoid obvious names already in the taste profile.\n\n"
+        f"Taste Profile:\n{taste_context[:3000]}\n\n"
+        "JSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
+    )
 
     res = client.chat.completions.create(
         model="anthropic/claude-sonnet-4.6",
@@ -150,7 +164,7 @@ async def discover(payload: dict):
     user_id = os.environ["TASTE_USER_ID"]
 
     try:
-        verified, drafted_message = await _run_discovery(payload.get("artists", ["Miles Davis"]), user_id)
+        verified, drafted_message = await _run_discovery(user_id)
     except HTTPException:
         raise
     except Exception as e:
@@ -246,7 +260,7 @@ async def curate_herald(payload: dict):
 
 # --- TASTE SYNC CRON (every 6 hours) ---
 
-@app.function(secrets=secrets, schedule=modal.Cron("0 */6 * * *"), timeout=120)
+@app.function(secrets=secrets, schedule=modal.Cron("0 */6 * * *"), timeout=600)
 async def sync_taste():
     from mem0 import MemoryClient
     import pylast
@@ -261,16 +275,22 @@ async def sync_taste():
     network = pylast.LastFMNetwork(api_key=api_key, api_secret=api_secret)
     user = network.get_user(lastfm_user)
 
-    recent_tracks = user.get_recent_tracks(limit=50)
+    all_artists = set()
+    page = 1
+    while True:
+        tracks = user.get_recent_tracks(limit=200, page=page)
+        if not tracks:
+            break
+        for track in tracks:
+            try:
+                all_artists.add(track.track.artist.name)
+            except Exception:
+                pass
+        if len(tracks) < 200:
+            break
+        page += 1
 
-    artists = set()
-    for track in recent_tracks:
-        try:
-            artists.add(track.track.artist.name)
-        except Exception:
-            pass
-
-    print(f"Found {len(artists)} unique artists from last {len(recent_tracks)} scrobbles")
+    print(f"Found {len(all_artists)} unique artists across all scrobbles")
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
     existing = m0.get_all(user_id=taste_user_id)
@@ -280,7 +300,7 @@ async def sync_taste():
         if text.startswith("Artist: "):
             existing_artists.add(text.split("\n")[0].replace("Artist: ", "").strip())
 
-    for artist_name in sorted(artists):
+    for artist_name in sorted(all_artists):
         if artist_name in existing_artists:
             print(f"Skipping {artist_name} (already ingested)")
             continue
@@ -294,25 +314,13 @@ async def sync_taste():
 @app.function(secrets=secrets, schedule=modal.Cron("0 12 * * *"), timeout=300)
 async def daily_discover():
     import httpx
-    from mem0 import MemoryClient
 
     print("--- DAILY DISCOVER CRON START ---")
 
     user_id = os.environ["TASTE_USER_ID"]
-    m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-
-    existing = m0.get_all(user_id=user_id)
-    artists = []
-    for mem in existing:
-        text = mem.get("text", "")
-        if text.startswith("Artist: "):
-            artists.append(text.split("\n")[0].replace("Artist: ", "").strip())
-
-    if not artists:
-        artists = ["Miles Davis", "John Coltrane", "Billy Hart", "Elvin Jones", "Tony Williams"]
 
     try:
-        verified, drafted_message = await _run_discovery(artists, user_id)
+        verified, drafted_message = await _run_discovery(user_id)
     except Exception as e:
         print(f"Discovery pipeline failed: {e}")
         verified, drafted_message = [], "Discovery pipeline failed today."

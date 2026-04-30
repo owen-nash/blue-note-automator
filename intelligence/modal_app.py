@@ -24,6 +24,7 @@ image = (
         "mem0ai",
         "voyageai",
         "playwright",
+        "httpx",
         "psycopg2-binary"
     )
     .run_commands("playwright install chromium")

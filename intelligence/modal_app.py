@@ -129,7 +129,7 @@ async def _run_discovery(user_id: str):
                 if ytm_search:
                     m['ytm_link'] = f"https://music.youtube.com/browse/{ytm_search[0]['browseId']}"
                     verified.append(m)
-                    try: m0.add(f"Discovered {m['album']}", filters={"user_id": user_id})
+                    try: m0.add(f"Discovered {m['album']}", user_id=user_id)
                     except: pass
             if len(verified) >= 5: break
         except: continue
@@ -137,7 +137,7 @@ async def _run_discovery(user_id: str):
     today_str = datetime.now().strftime("%Y-%m-%d")
     for m in verified:
         try:
-            m0.add(f"Sent: {m['album']} by {m['new_artist']} ({today_str})", filters={"user_id": user_id})
+            m0.add(f"Sent: {m['album']} by {m['new_artist']} ({today_str})", user_id=user_id)
         except:
             pass
 
@@ -188,7 +188,7 @@ def enrich_taste_profile(artist_name: str):
             f"while constantly pushing forward. Listening to {artist_name} "
             f"reveals a masterful command of texture, timing, and emotion."
         )
-        m0.add(paragraph, filters={"user_id": user_id})
+        m0.add(paragraph, user_id=user_id)
         print(f"Ingested: {artist_name} [{genre_str}]")
     except Exception as e:
         print(f"Error ingesting {artist_name}: {e}")
@@ -235,7 +235,7 @@ async def feedback(payload: dict):
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
         label = "Liked" if rating == "like" else "Disliked"
         text = f"{label}: {artist} - {album}"
-        m0.add(text, filters={"user_id": user_id or os.environ["TASTE_USER_ID"]})
+        m0.add(text, user_id=user_id or os.environ["TASTE_USER_ID"])
         print(f"Feedback recorded: {text}")
     except Exception as e:
         print(f"Feedback Mem0 Error: {e}")

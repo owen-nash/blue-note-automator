@@ -1,0 +1,27 @@
+[BLUE NOTE AUTOMATOR BRAIN FIX]
+
+Implement these 3 tasks IN ORDER:
+
+TASK 1 (bead bna-lre): Build sync_taste() ingestion pipeline
+- Create a function sync_taste() in intelligence/modal_app.py
+- Fetch top artists from Last.fm API (LASTFM_API_KEY and LASTFM_USER in .env)
+- For each artist, enrich with MusicBrainz genre tags via MusicBrainz API
+- Add Wikipedia-style biographical context ("they are pioneers of...")
+- Format as natural language paragraphs and write to Mem0 via m.add()
+- Make it idempotent with dedup checking
+
+TASK 2 (bead bna-fl8): Fix user_id plumbing for cross-system consistency
+- Ensure Discord bot, Modal functions, and cron jobs all use the same TASTE_USER_ID
+- Remove any default_user fallback values
+- Pull from env consistently
+
+TASK 3 (bead bna-bgw): Wire Mem0 search into discover_and_herald
+- Replace m0.get_all() with m.search() in intelligence/modal_app.py
+- Inject the retrieved memories into the OpenRouter/LLM prompt as context
+- Cap injected context at 500 tokens
+- Use limit=5 for discover, limit=10 for herald
+
+Use .env for all secrets. Do NOT commit secrets.env.
+Make small focused git commits for each task.
+Run syntax checks after each change.
+Push to origin when done.

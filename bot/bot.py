@@ -90,28 +90,38 @@ async def discover_command(interaction: discord.Interaction):
             
         data = res.json()
         
-        msg = data["drafted_message"]
-        if len(msg) > 2000:
-            msg = msg[:2000] + "... (truncated)"
-        try:
-            await interaction.followup.send(msg)
-        except Exception as e:
-            print(f"followup.send error: {e}")
-            await interaction.followup.send("❌ Failed to send discovery message.", ephemeral=True)
-        
+        if not data.get("missions"):
+            return await interaction.followup.send("🎵 No discoveries found this time.")
+
+        count = len(data["missions"])
+        await interaction.followup.send(f"🎵 **{count} new {'discovery' if count == 1 else 'discoveries'}** based on your taste profile:")
+
         for m in data["missions"]:
             embed = discord.Embed(title=f"🎼 {m['album']}", description=f"**{m['new_artist']}**", color=3447003)
-            embed.add_field(name="🤝 Connection", value=m['connection'], inline=False)
+            embed.add_field(name="🤝 Connection", value=m['connection'][:150], inline=False)
             if m.get("personnel"):
                 personnel = m['personnel']
                 if isinstance(personnel, list):
-                    embed.add_field(name="🎹 Personnel", value=", ".join(personnel), inline=False)
+                    val = ", ".join(personnel)
                 else:
-                    embed.add_field(name="🎹 Personnel", value=personnel, inline=False)
-            embed.add_field(name="🎧 Listen", value=f"[YouTube Music]({m['ytm_link']})", inline=False)
-            await interaction.channel.send(embed=embed)
+                    val = personnel
+                if len(val) > 800:
+                    val = val[:797] + "..."
+                embed.add_field(name="🎹 Personnel", value=val, inline=False)
+            ytm = m.get("ytm_link", "")
+            embed.add_field(name="🎧 Listen", value=f"[YouTube Music]({ytm})" if ytm else "N/A", inline=False)
+
+            total = len(embed.title or "") + len(embed.description or "")
+            for f in embed.fields:
+                total += len(f.name) + len(f.value)
+            if total > 1950:
+                print(f"WARNING: embed for {m['album']} is ~{total} chars, truncating")
+                for f in embed.fields:
+                    if len(f.value) > 100:
+                        f.value = f.value[:97] + "..."
+
             view = FeedbackView(m['new_artist'], m['album'])
-            await interaction.channel.send(view=view)
+            await interaction.channel.send(embed=embed, view=view)
             
     except Exception as e:
         print(f"ERROR /discover: {e}")

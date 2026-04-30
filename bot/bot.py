@@ -43,7 +43,7 @@ async def discover_command(interaction: discord.Interaction):
     
     try:
         payload = {
-            "user_id": str(interaction.user.id),
+            "user_id": os.getenv("TASTE_USER_ID"),
             "artists": ["Miles Davis", "John Coltrane", "Billy Hart", "Elvin Jones", "Tony Williams"]
         }
         

@@ -112,10 +112,11 @@ async def discover(payload: dict):
     print(f"--- DISCOVERY START: {payload.get('user_id')} ---")
     musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
 
+    user_id = os.environ["TASTE_USER_ID"]
+
     # Initialize Mem0
     try:
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-        user_id = payload.get("user_id", "default_user")
         memories = m0.get_all(user_id=user_id)
         soul_context = "\n".join([mem["text"] for mem in memories]) if memories else "Focus on classic hard-bop."
     except Exception as e:

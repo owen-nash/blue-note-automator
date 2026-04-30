@@ -1,10 +1,8 @@
 import discord
 from discord import app_commands
 import os
-import json
 import httpx
 import asyncio
-import pylast
 from datetime import datetime
 from dotenv import load_dotenv
 
@@ -34,21 +32,26 @@ class JazzBot(discord.Client):
 
     async def on_interaction(self, interaction: discord.Interaction):
         if interaction.type != discord.InteractionType.component:
-            return
+            return await super().on_interaction(interaction)
         custom_id = interaction.data.get("custom_id", "")
-        if custom_id.startswith("like:") or custom_id.startswith("dislike:"):
-            parts = custom_id.split(":", 2)
-            if len(parts) != 3:
-                return
-            rating, artist, album = parts
-            await interaction.response.defer()
-            feedback_url = MODAL_DISCOVER_URL.replace("/discover", "/feedback")
-            payload = {"artist": artist, "album": album, "rating": rating, "user_id": str(interaction.user.id)}
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    await client.post(feedback_url, json=payload)
-            except Exception as e:
-                print(f"Webhook Feedback Error: {e}")
+        if not (custom_id.startswith("like:") or custom_id.startswith("dislike:")):
+            return await super().on_interaction(interaction)
+        parts = custom_id.split(":", 2)
+        if len(parts) != 3:
+            return await interaction.response.send_message("Invalid feedback format.", ephemeral=True)
+        rating, artist, album = parts
+        if not MODAL_DISCOVER_URL:
+            return await interaction.response.send_message("Feedback service unavailable.", ephemeral=True)
+        await interaction.response.defer(ephemeral=True)
+        feedback_url = MODAL_DISCOVER_URL.replace("/discover", "/feedback")
+        payload = {"artist": artist, "album": album, "rating": rating, "user_id": str(interaction.user.id)}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(feedback_url, json=payload)
+            await interaction.followup.send("Feedback recorded!", ephemeral=True)
+        except Exception as e:
+            print(f"Webhook Feedback Error: {e}")
+            await interaction.followup.send("Failed to record feedback.", ephemeral=True)
 
 bot = JazzBot()
 
@@ -57,30 +60,10 @@ bot = JazzBot()
 class FeedbackView(discord.ui.View):
     def __init__(self, artist: str, album: str):
         super().__init__(timeout=None)
-        self.artist = artist
-        self.album = album
         like_btn = discord.ui.Button(style=discord.ButtonStyle.success, emoji="👍", custom_id=f"like:{artist}:{album}")
-        like_btn.callback = self.like_callback
         self.add_item(like_btn)
         dislike_btn = discord.ui.Button(style=discord.ButtonStyle.danger, emoji="👎", custom_id=f"dislike:{artist}:{album}")
-        dislike_btn.callback = self.dislike_callback
         self.add_item(dislike_btn)
-
-    async def _send_feedback(self, interaction: discord.Interaction, rating: str):
-        await interaction.response.defer()
-        feedback_url = MODAL_DISCOVER_URL.replace("/discover", "/feedback")
-        payload = {"artist": self.artist, "album": self.album, "rating": rating, "user_id": str(interaction.user.id)}
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(feedback_url, json=payload)
-        except Exception as e:
-            print(f"Feedback Error: {e}")
-
-    async def like_callback(self, interaction: discord.Interaction):
-        await self._send_feedback(interaction, "like")
-
-    async def dislike_callback(self, interaction: discord.Interaction):
-        await self._send_feedback(interaction, "dislike")
 
 # --- DISCOVERY COMMAND ---
 

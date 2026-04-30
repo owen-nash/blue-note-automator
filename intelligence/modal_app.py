@@ -2,8 +2,9 @@ import modal
 import os
 import json
 import random
-import traceback
 from typing import List, Optional
+
+MB_USER_AGENT = ("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
 
 # Define the container image with all 2026 dependencies
 image = (
@@ -43,14 +44,73 @@ def extract_json(text: str):
         pass
     return None
 
+# --- DISCOVERY HELPER ---
+
+async def _run_discovery(artists: list, user_id: str):
+    from openai import OpenAI
+    from mem0 import MemoryClient
+    from ytmusicapi import YTMusic
+    import musicbrainzngs
+
+    musicbrainzngs.set_useragent(*MB_USER_AGENT)
+
+    m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
+    results = m0.search(query="jazz taste profile", user_id=user_id, limit=5)
+    raw_text = "\n".join([r["text"] for r in results]) if results else ""
+    soul_context = raw_text[:2000] if raw_text else "Focus on classic hard-bop."
+
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
+
+    sonnet_prompt = f"Historian persona. User soul: {soul_context}. Current: {artists}. Pick 5 links. JSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
+
+    res = client.chat.completions.create(
+        model="anthropic/claude-sonnet-4.6",
+        messages=[{"role": "user", "content": sonnet_prompt}]
+    )
+    parsed = extract_json(res.choices[0].message.content)
+    if not parsed or "missions" not in parsed:
+        raise Exception("No JSON")
+    raw_missions = parsed["missions"]
+
+    verified = []
+    ytm = YTMusic()
+    for m in raw_missions:
+        try:
+            mb_res = musicbrainzngs.search_releases(artist=m['new_artist'], release=m['album'], limit=1)
+            if mb_res['release-count'] > 0:
+                ytm_search = ytm.search(f"{m['new_artist']} {m['album']}", filter="albums")
+                if ytm_search:
+                    m['ytm_link'] = f"https://music.youtube.com/browse/{ytm_search[0]['browseId']}"
+                    verified.append(m)
+                    try: m0.add(f"Discovered {m['album']}", user_id=user_id)
+                    except: pass
+            if len(verified) >= 5: break
+        except: continue
+
+    if not verified:
+        raise Exception("No verified albums found.")
+
+    drafted_message = "Here are your 5 verified jazz discoveries!"
+    try:
+        opus_res = client.chat.completions.create(
+            model="anthropic/claude-opus-4.7",
+            messages=[{"role": "user", "content": f"Write Discord post for: {json.dumps(verified)}"}]
+        )
+        drafted_message = opus_res.choices[0].message.content
+    except:
+        pass
+
+    return verified, drafted_message
+
+
 # --- TASTE SYNC PIPELINE ---
 
-@app.function(secrets=secrets, timeout=300, image=modal.Image.debian_slim().pip_install("pylast", "musicbrainzngs"))
+@app.function(secrets=secrets, timeout=300)
 def enrich_taste_profile(artist_name: str):
     import musicbrainzngs
     from mem0 import MemoryClient
 
-    musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
+    musicbrainzngs.set_useragent(*MB_USER_AGENT)
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
     user_id = os.environ["TASTE_USER_ID"]
@@ -84,73 +144,17 @@ def enrich_taste_profile(artist_name: str):
 @app.function(secrets=secrets, timeout=300)
 @modal.fastapi_endpoint(method="POST")
 async def discover(payload: dict):
-    from openai import OpenAI
-    from mem0 import MemoryClient
-    from ytmusicapi import YTMusic
     from fastapi import HTTPException
-    import musicbrainzngs
 
     print(f"--- DISCOVERY START: {payload.get('user_id')} ---")
-    musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
-
     user_id = os.environ["TASTE_USER_ID"]
 
-    # Initialize Mem0
     try:
-        m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-        results = m0.search(query="jazz taste profile", user_id=user_id, limit=5)
-        raw_text = "\n".join([r["text"] for r in results]) if results else ""
-        soul_context = raw_text[:2000] if raw_text else "Focus on classic hard-bop."
+        verified, drafted_message = await _run_discovery(payload.get("artists", ["Miles Davis"]), user_id)
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Mem0 Error: {e}")
-        soul_context = "Focus on classic hard-bop."
-
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
-
-    # STAGE 1: Musical Analysis
-    artists = payload.get("artists", ["Miles Davis"])
-    sonnet_prompt = f"Historian persona. User soul: {soul_context}. Current: {artists}. Pick 5 links. JSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
-    
-    try:
-        res = client.chat.completions.create(
-            model="anthropic/claude-sonnet-4.6",
-            messages=[{"role": "user", "content": sonnet_prompt}]
-        )
-        content = res.choices[0].message.content
-        parsed = extract_json(content)
-        if not parsed or "missions" not in parsed:
-            raise Exception("No JSON")
-        raw_missions = parsed["missions"]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Stage 1: {str(e)}")
-
-    verified = []
-    ytm = YTMusic()
-    for m in raw_missions:
-        try:
-            mb_res = musicbrainzngs.search_releases(artist=m['new_artist'], release=m['album'], limit=1)
-            if mb_res['release-count'] > 0:
-                ytm_search = ytm.search(f"{m['new_artist']} {m['album']}", filter="albums")
-                if ytm_search:
-                    m['ytm_link'] = f"https://music.youtube.com/browse/{ytm_search[0]['browseId']}"
-                    verified.append(m)
-                    try: m0.add(f"Discovered {m['album']}", user_id=user_id)
-                    except: pass
-            if len(verified) >= 5: break
-        except: continue
-
-    if not verified:
-        raise HTTPException(status_code=500, detail="No verified albums found.")
-
-    # STAGE 2: Drafting
-    try:
-        opus_res = client.chat.completions.create(
-            model="anthropic/claude-opus-4.7",
-            messages=[{"role": "user", "content": f"Write Discord post for: {json.dumps(verified)}"}]
-        )
-        drafted_message = opus_res.choices[0].message.content
-    except:
-        drafted_message = "Here are your 5 verified jazz discoveries!"
+        raise HTTPException(status_code=500, detail=str(e))
 
     return {"missions": verified, "drafted_message": drafted_message}
 
@@ -170,6 +174,8 @@ async def feedback(payload: dict):
 
     if not all([artist, album, rating]):
         raise HTTPException(status_code=400, detail="Missing required fields: artist, album, rating")
+    if rating not in ("like", "dislike"):
+        raise HTTPException(status_code=400, detail="rating must be 'like' or 'dislike'")
 
     try:
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
@@ -240,7 +246,7 @@ async def curate_herald(payload: dict):
 
 # --- TASTE SYNC CRON (every 6 hours) ---
 
-@app.function(secrets=secrets, schedule=modal.Cron("0 */6 * * *"), timeout=120, image=modal.Image.debian_slim().pip_install("pylast", "musicbrainzngs"))
+@app.function(secrets=secrets, schedule=modal.Cron("0 */6 * * *"), timeout=120)
 async def sync_taste():
     from mem0 import MemoryClient
     import pylast
@@ -288,10 +294,7 @@ async def sync_taste():
 @app.function(secrets=secrets, schedule=modal.Cron("0 12 * * *"), timeout=300)
 async def daily_discover():
     import httpx
-    from openai import OpenAI
     from mem0 import MemoryClient
-    from ytmusicapi import YTMusic
-    import musicbrainzngs
 
     print("--- DAILY DISCOVER CRON START ---")
 
@@ -308,46 +311,11 @@ async def daily_discover():
     if not artists:
         artists = ["Miles Davis", "John Coltrane", "Billy Hart", "Elvin Jones", "Tony Williams"]
 
-    musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
-
-    results = m0.search(query="jazz taste profile", user_id=user_id, limit=5)
-    raw_text = "\n".join([r["text"] for r in results]) if results else ""
-    soul_context = raw_text[:2000] if raw_text else "Focus on classic hard-bop."
-
-    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
-
-    sonnet_prompt = f"Historian persona. User soul: {soul_context}. Current: {artists}. Pick 5 links. JSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
-    res = client.chat.completions.create(
-        model="anthropic/claude-sonnet-4.6",
-        messages=[{"role": "user", "content": sonnet_prompt}]
-    )
-    parsed = extract_json(res.choices[0].message.content)
-    raw_missions = parsed["missions"] if parsed else []
-
-    verified = []
-    ytm = YTMusic()
-    for m in raw_missions:
-        try:
-            mb_res = musicbrainzngs.search_releases(artist=m['new_artist'], release=m['album'], limit=1)
-            if mb_res['release-count'] > 0:
-                ytm_search = ytm.search(f"{m['new_artist']} {m['album']}", filter="albums")
-                if ytm_search:
-                    m['ytm_link'] = f"https://music.youtube.com/browse/{ytm_search[0]['browseId']}"
-                    verified.append(m)
-                    try: m0.add(f"Discovered {m['album']}", user_id=user_id)
-                    except: pass
-            if len(verified) >= 5: break
-        except: continue
-
-    drafted_message = "Here are your 5 daily jazz discoveries!"
     try:
-        opus_res = client.chat.completions.create(
-            model="anthropic/claude-opus-4.7",
-            messages=[{"role": "user", "content": f"Write Discord post for: {json.dumps(verified)}"}]
-        )
-        drafted_message = opus_res.choices[0].message.content
-    except:
-        pass
+        verified, drafted_message = await _run_discovery(artists, user_id)
+    except Exception as e:
+        print(f"Discovery pipeline failed: {e}")
+        verified, drafted_message = [], "Discovery pipeline failed today."
 
     webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
     async with httpx.AsyncClient(timeout=30.0) as hx:

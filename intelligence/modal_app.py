@@ -117,8 +117,9 @@ async def discover(payload: dict):
     # Initialize Mem0
     try:
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-        memories = m0.get_all(user_id=user_id)
-        soul_context = "\n".join([mem["text"] for mem in memories]) if memories else "Focus on classic hard-bop."
+        results = m0.search(query="jazz taste profile", user_id=user_id, limit=5)
+        raw_text = "\n".join([r["text"] for r in results]) if results else ""
+        soul_context = raw_text[:2000] if raw_text else "Focus on classic hard-bop."
     except Exception as e:
         print(f"Mem0 Error: {e}")
         soul_context = "Focus on classic hard-bop."
@@ -207,10 +208,21 @@ async def curate_herald(payload: dict):
         await browser.close()
 
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
+
+    taste_context = ""
+    try:
+        from mem0 import MemoryClient
+        m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
+        results = m0.search(query="jazz taste profile", user_id=os.environ["TASTE_USER_ID"], limit=10)
+        raw = "\n".join([r["text"] for r in results]) if results else ""
+        taste_context = raw[:2000]
+    except:
+        pass
+
     try:
         res = client.chat.completions.create(
             model="anthropic/claude-sonnet-4.6",
-            messages=[{"role": "user", "content": f"Curate these 8/10+: {json.dumps(new_articles[:3])}. JSON: selected_articles[url, title, source, rating, summary]"}]
+            messages=[{"role": "user", "content": f"Taste context: {taste_context}\nCurate these 8/10+: {json.dumps(new_articles[:3])}. JSON: selected_articles[url, title, source, rating, summary]"}]
         )
         return extract_json(res.choices[0].message.content).get("selected_articles", [])
     except: return []

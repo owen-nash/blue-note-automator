@@ -281,3 +281,174 @@ async def sync_taste():
         enrich_taste_profile.remote(artist_name)
 
     print("--- TASTE SYNC COMPLETE ---")
+
+
+# --- DAILY DISCOVER CRON (12:00 UTC) ---
+
+@app.function(secrets=secrets, schedule=modal.Cron("0 12 * * *"), timeout=300)
+async def daily_discover():
+    import httpx
+    from openai import OpenAI
+    from mem0 import MemoryClient
+    from ytmusicapi import YTMusic
+    import musicbrainzngs
+
+    print("--- DAILY DISCOVER CRON START ---")
+
+    user_id = os.environ["TASTE_USER_ID"]
+    m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
+
+    existing = m0.get_all(user_id=user_id)
+    artists = []
+    for mem in existing:
+        text = mem.get("text", "")
+        if text.startswith("Artist: "):
+            artists.append(text.split("\n")[0].replace("Artist: ", "").strip())
+
+    if not artists:
+        artists = ["Miles Davis", "John Coltrane", "Billy Hart", "Elvin Jones", "Tony Williams"]
+
+    musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
+
+    results = m0.search(query="jazz taste profile", user_id=user_id, limit=5)
+    raw_text = "\n".join([r["text"] for r in results]) if results else ""
+    soul_context = raw_text[:2000] if raw_text else "Focus on classic hard-bop."
+
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
+
+    sonnet_prompt = f"Historian persona. User soul: {soul_context}. Current: {artists}. Pick 5 links. JSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
+    res = client.chat.completions.create(
+        model="anthropic/claude-sonnet-4.6",
+        messages=[{"role": "user", "content": sonnet_prompt}]
+    )
+    parsed = extract_json(res.choices[0].message.content)
+    raw_missions = parsed["missions"] if parsed else []
+
+    verified = []
+    ytm = YTMusic()
+    for m in raw_missions:
+        try:
+            mb_res = musicbrainzngs.search_releases(artist=m['new_artist'], release=m['album'], limit=1)
+            if mb_res['release-count'] > 0:
+                ytm_search = ytm.search(f"{m['new_artist']} {m['album']}", filter="albums")
+                if ytm_search:
+                    m['ytm_link'] = f"https://music.youtube.com/browse/{ytm_search[0]['browseId']}"
+                    verified.append(m)
+                    try: m0.add(f"Discovered {m['album']}", user_id=user_id)
+                    except: pass
+            if len(verified) >= 5: break
+        except: continue
+
+    drafted_message = "Here are your 5 daily jazz discoveries!"
+    try:
+        opus_res = client.chat.completions.create(
+            model="anthropic/claude-opus-4.7",
+            messages=[{"role": "user", "content": f"Write Discord post for: {json.dumps(verified)}"}]
+        )
+        drafted_message = opus_res.choices[0].message.content
+    except:
+        pass
+
+    webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
+    async with httpx.AsyncClient(timeout=30.0) as hx:
+        await hx.post(webhook_url, json={"content": drafted_message})
+        for m in verified:
+            embed_payload = {
+                "title": f"🎼 {m['album']}",
+                "description": f"**{m['new_artist']}**",
+                "color": 3447003,
+                "fields": [
+                    {"name": "🤝 Connection", "value": m['connection'], "inline": False}
+                ]
+            }
+            if m.get("personnel"):
+                embed_payload["fields"].append({"name": "🎹 Personnel", "value": ", ".join(m['personnel']), "inline": False})
+            embed_payload["fields"].append({"name": "🎧 Listen", "value": f"[YouTube Music]({m['ytm_link']})", "inline": False})
+
+            components = [{
+                "type": 1,
+                "components": [
+                    {"type": 2, "style": 3, "custom_id": f"like:{m['new_artist']}:{m['album']}", "emoji": {"name": "👍"}},
+                    {"type": 2, "style": 4, "custom_id": f"dislike:{m['new_artist']}:{m['album']}", "emoji": {"name": "👎"}}
+                ]
+            }]
+            await hx.post(webhook_url, json={"embeds": [embed_payload], "components": components})
+
+    print("--- DAILY DISCOVER CRON COMPLETE ---")
+
+
+# --- WEEKLY HERALD CRON (Sunday 10:00 UTC) ---
+
+@app.function(secrets=secrets, schedule=modal.Cron("0 10 * * 0"), timeout=300)
+async def weekly_herald():
+    import httpx
+    from openai import OpenAI
+    import feedparser
+    from playwright.async_api import async_playwright
+
+    print("--- WEEKLY HERALD CRON START ---")
+
+    FEEDS = {"The Gig": "https://natechinen.substack.com/feed", "DownBeat": "https://downbeat.com/site/rss"}
+    new_articles = []
+
+    for source, url in FEEDS.items():
+        try:
+            feed = feedparser.parse(url)
+            for entry in feed.entries:
+                new_articles.append({"source": source, "title": entry.title, "link": entry.link})
+        except:
+            pass
+
+    curated = []
+    if new_articles:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            for art in new_articles[:3]:
+                page = await browser.new_page()
+                try:
+                    await page.goto(art['link'], timeout=15000)
+                    art['full_text'] = (await page.evaluate("document.body.innerText"))[:3000]
+                except:
+                    art['full_text'] = ""
+                await page.close()
+            await browser.close()
+
+        taste_context = ""
+        try:
+            from mem0 import MemoryClient
+            m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
+            results = m0.search(query="jazz taste profile", user_id=os.environ["TASTE_USER_ID"], limit=10)
+            raw = "\n".join([r["text"] for r in results]) if results else ""
+            taste_context = raw[:2000]
+        except:
+            pass
+
+        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
+        try:
+            res = client.chat.completions.create(
+                model="anthropic/claude-sonnet-4.6",
+                messages=[{"role": "user", "content": f"Taste context: {taste_context}\nCurate these 8/10+: {json.dumps(new_articles[:3])}. JSON: selected_articles[url, title, source, rating, summary]"}]
+            )
+            result = extract_json(res.choices[0].message.content)
+            if result:
+                curated = result.get("selected_articles", [])
+        except:
+            pass
+
+    webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
+    async with httpx.AsyncClient(timeout=30.0) as hx:
+        if not curated:
+            await hx.post(webhook_url, json={"content": "🗞️ No new high-signal dispatches found this week."})
+        else:
+            await hx.post(webhook_url, json={"content": "## 🎺 The Jazz News Herald (Weekly Edition)"})
+            for art in curated:
+                embed_payload = {
+                    "title": f"🗞️ {art['title']}",
+                    "url": art['link'],
+                    "description": art['summary'],
+                    "color": 15105570,
+                    "fields": [{"name": "📍 Source", "value": art['source'], "inline": True}]
+                }
+                await hx.post(webhook_url, json={"embeds": [embed_payload]})
+
+    print("--- WEEKLY HERALD CRON COMPLETE ---")

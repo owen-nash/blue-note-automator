@@ -34,6 +34,36 @@ class JazzBot(discord.Client):
 
 bot = JazzBot()
 
+# --- FEEDBACK BUTTONS ---
+
+class FeedbackView(discord.ui.View):
+    def __init__(self, artist: str, album: str):
+        super().__init__(timeout=None)
+        self.artist = artist
+        self.album = album
+        like_btn = discord.ui.Button(style=discord.ButtonStyle.success, emoji="👍", custom_id=f"like:{artist}:{album}")
+        like_btn.callback = self.like_callback
+        self.add_item(like_btn)
+        dislike_btn = discord.ui.Button(style=discord.ButtonStyle.danger, emoji="👎", custom_id=f"dislike:{artist}:{album}")
+        dislike_btn.callback = self.dislike_callback
+        self.add_item(dislike_btn)
+
+    async def _send_feedback(self, interaction: discord.Interaction, rating: str):
+        await interaction.response.defer()
+        feedback_url = MODAL_DISCOVER_URL.replace("/discover", "/feedback")
+        payload = {"artist": self.artist, "album": self.album, "rating": rating, "user_id": str(interaction.user.id)}
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(feedback_url, json=payload)
+        except Exception as e:
+            print(f"Feedback Error: {e}")
+
+    async def like_callback(self, interaction: discord.Interaction):
+        await self._send_feedback(interaction, "like")
+
+    async def dislike_callback(self, interaction: discord.Interaction):
+        await self._send_feedback(interaction, "dislike")
+
 # --- DISCOVERY COMMAND ---
 
 @bot.tree.command(name="discover", description="Get 5 fresh jazz discoveries (Async)")
@@ -67,6 +97,8 @@ async def discover_command(interaction: discord.Interaction):
                 embed.add_field(name="🎹 Personnel", value=", ".join(m['personnel']), inline=False)
             embed.add_field(name="🎧 Listen", value=f"[YouTube Music]({m['ytm_link']})", inline=False)
             await interaction.channel.send(embed=embed)
+            view = FeedbackView(m['new_artist'], m['album'])
+            await interaction.channel.send(view=view)
             
     except Exception as e:
         print(f"ERROR /discover: {e}")

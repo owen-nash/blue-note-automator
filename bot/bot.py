@@ -87,7 +87,14 @@ async def discover_command(interaction: discord.Interaction):
             
         data = res.json()
         
-        await interaction.followup.send(data["drafted_message"])
+        msg = data["drafted_message"]
+        if len(msg) > 2000:
+            msg = msg[:2000] + "... (truncated)"
+        try:
+            await interaction.followup.send(msg)
+        except Exception as e:
+            print(f"followup.send error: {e}")
+            await interaction.followup.send("❌ Failed to send discovery message.", ephemeral=True)
         
         for m in data["missions"]:
             embed = discord.Embed(title=f"🎼 {m['album']}", description=f"**{m['new_artist']}**", color=3447003)

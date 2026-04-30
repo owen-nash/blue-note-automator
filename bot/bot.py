@@ -36,11 +36,13 @@ class JazzBot(discord.Client):
         if interaction.type != discord.InteractionType.component:
             return
         custom_id = interaction.data.get("custom_id", "")
-        if custom_id.startswith("like:") or custom_id.startswith("dislike:"):
-            parts = custom_id.split(":", 2)
+        if custom_id.startswith("like|") or custom_id.startswith("dislike|"):
+            parts = custom_id.split("|", 2)
             if len(parts) != 3:
                 return
             rating, artist, album = parts
+            if interaction.response.is_done():
+                return
             await interaction.response.defer()
             feedback_url = MODAL_DISCOVER_URL.replace("/discover", "/feedback")
             payload = {"artist": artist, "album": album, "rating": rating, "user_id": str(interaction.user.id)}
@@ -59,10 +61,10 @@ class FeedbackView(discord.ui.View):
         super().__init__(timeout=None)
         self.artist = artist
         self.album = album
-        like_btn = discord.ui.Button(style=discord.ButtonStyle.success, emoji="👍", custom_id=f"like:{artist}:{album}")
+        like_btn = discord.ui.Button(style=discord.ButtonStyle.success, emoji="👍", custom_id=f"like|{artist}|{album}")
         like_btn.callback = self.like_callback
         self.add_item(like_btn)
-        dislike_btn = discord.ui.Button(style=discord.ButtonStyle.danger, emoji="👎", custom_id=f"dislike:{artist}:{album}")
+        dislike_btn = discord.ui.Button(style=discord.ButtonStyle.danger, emoji="👎", custom_id=f"dislike|{artist}|{album}")
         dislike_btn.callback = self.dislike_callback
         self.add_item(dislike_btn)
 

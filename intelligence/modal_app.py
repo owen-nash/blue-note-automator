@@ -23,7 +23,8 @@ image = (
         "mem0ai",
         "voyageai",
         "playwright",
-        "psycopg2-binary"
+        "psycopg2-binary",
+        "httpx"
     )
     .run_commands("playwright install chromium")
 )
@@ -50,7 +51,7 @@ def enrich_taste_profile(artist_name: str):
     import musicbrainzngs
     from mem0 import MemoryClient
 
-    musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
+    musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", os.environ.get("MUSICBRAINZ_EMAIL", "blue-note-automator@example.com"))
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
     user_id = os.environ["TASTE_USER_ID"]
@@ -91,7 +92,7 @@ async def discover(payload: dict):
     import musicbrainzngs
 
     print(f"--- DISCOVERY START: {payload.get('user_id')} ---")
-    musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
+    musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", os.environ.get("MUSICBRAINZ_EMAIL", "blue-note-automator@example.com"))
 
     user_id = os.environ["TASTE_USER_ID"]
 
@@ -368,8 +369,8 @@ async def daily_discover():
             components = [{
                 "type": 1,
                 "components": [
-                    {"type": 2, "style": 3, "custom_id": f"like:{m['new_artist']}:{m['album']}", "emoji": {"name": "👍"}},
-                    {"type": 2, "style": 4, "custom_id": f"dislike:{m['new_artist']}:{m['album']}", "emoji": {"name": "👎"}}
+                    {"type": 2, "style": 3, "custom_id": f"like|{m['new_artist']}|{m['album']}", "emoji": {"name": "👍"}},
+                    {"type": 2, "style": 4, "custom_id": f"dislike|{m['new_artist']}|{m['album']}", "emoji": {"name": "👎"}}
                 ]
             }]
             await hx.post(webhook_url, json={"embeds": [embed_payload], "components": components})

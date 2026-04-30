@@ -154,6 +154,35 @@ async def discover(payload: dict):
 
     return {"missions": verified, "drafted_message": drafted_message}
 
+
+# --- FEEDBACK ENDPOINT ---
+
+@app.function(secrets=secrets, timeout=30)
+@modal.fastapi_endpoint(method="POST")
+async def feedback(payload: dict):
+    from mem0 import MemoryClient
+    from fastapi import HTTPException
+
+    artist = payload.get("artist")
+    album = payload.get("album")
+    rating = payload.get("rating")
+    user_id = payload.get("user_id")
+
+    if not all([artist, album, rating]):
+        raise HTTPException(status_code=400, detail="Missing required fields: artist, album, rating")
+
+    try:
+        m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
+        label = "Liked" if rating == "like" else "Disliked"
+        text = f"{label}: {artist} - {album}"
+        m0.add(text, user_id=user_id or os.environ["TASTE_USER_ID"])
+        print(f"Feedback recorded: {text}")
+    except Exception as e:
+        print(f"Feedback Mem0 Error: {e}")
+
+    return {"status": "ok"}
+
+
 # --- HERALD ENDPOINT ---
 
 @app.function(secrets=secrets, timeout=600)

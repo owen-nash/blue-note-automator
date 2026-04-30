@@ -411,6 +411,157 @@ async def daily_discover():
     print("--- DAILY DISCOVER CRON COMPLETE ---")
 
 
+# --- DAILY PLAYLIST CRON (11:00 UTC) ---
+
+@app.function(secrets=secrets, schedule=modal.Cron("0 11 * * *"), timeout=600)
+async def create_daily_playlist():
+    import httpx
+    from openai import OpenAI
+    from mem0 import MemoryClient
+    from ytmusicapi import YTMusic
+    import json
+
+    print("--- DAILY PLAYLIST CRON START ---")
+
+    user_id = os.environ["TASTE_USER_ID"]
+
+    # 1. Query Mem0 for taste entries
+    try:
+        m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
+        all_memories = m0.get_all(user_id=user_id)
+    except Exception as e:
+        print(f"Mem0 query failed: {e}")
+        return
+
+    taste_entries = []
+    for mem in all_memories:
+        text = mem.get("text", "")
+        if text.startswith("Artist: ") or text.startswith("Liked:") or text.startswith("Disliked:"):
+            taste_entries.append(text)
+
+    taste_context = "\n".join(taste_entries[:20]) if taste_entries else "Focus on classic hard-bop and post-bop jazz."
+    print(f"Taste context: {len(taste_entries)} entries")
+
+    # 2. Ask Sonnet for track suggestions
+    client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
+
+    sonnet_prompt = (
+        "You are a jazz historian and DJ. Based on the user's taste profile below, "
+        "recommend 10-15 specific tracks (song + artist) that connect to their taste "
+        "through shared personnel, record label, era, or style. "
+        "Include a brief connection note for each track. "
+        "Do NOT recommend tracks already mentioned in the taste profile."
+        f"\n\nTaste Profile:\n{taste_context[:3000]}"
+        "\n\nJSON Output: tracks[artist, title, connection]"
+    )
+
+    try:
+        res = client.chat.completions.create(
+            model="anthropic/claude-sonnet-4.6",
+            messages=[{"role": "user", "content": sonnet_prompt}]
+        )
+        parsed = extract_json(res.choices[0].message.content)
+        if not parsed or "tracks" not in parsed:
+            raise Exception("No tracks in LLM response")
+        suggested_tracks = parsed["tracks"]
+        print(f"LLM suggested {len(suggested_tracks)} tracks")
+    except Exception as e:
+        print(f"LLM track suggestion failed: {e}")
+        return
+
+    # 3. Search YTMusic for videoIds
+    ytm = None
+    auth_failed = False
+    try:
+        headers_raw_str = os.environ.get("YT_COOKIE_HEADERS")
+        if not headers_raw_str:
+            raise Exception("YT_COOKIE_HEADERS not set")
+        headers_raw = json.loads(headers_raw_str)
+        YTMusic.setup("headers_auth.json", headers_raw=headers_raw)
+        ytm = YTMusic("headers_auth.json")
+    except Exception as e:
+        print(f"YTMusic auth failed: {e}")
+        auth_failed = True
+
+    found_tracks = []
+    for t in suggested_tracks:
+        try:
+            query = f"{t['artist']} {t['title']}"
+            search_results = ytm.search(query, filter="songs") if ytm else None
+            if search_results and len(search_results) > 0:
+                video_id = search_results[0].get("videoId")
+                if video_id:
+                    found_tracks.append({
+                        "artist": t["artist"],
+                        "title": t["title"],
+                        "videoId": video_id,
+                        "connection": t.get("connection", "")
+                    })
+        except Exception as e:
+            print(f"YTMusic search failed for {t.get('artist', '?')} - {t.get('title', '?')}: {e}")
+
+    print(f"Found {len(found_tracks)}/{len(suggested_tracks)} tracks on YTMusic")
+
+    # 4. If auth failed, log and exit
+    if auth_failed or not ytm:
+        print("Auth failed — tracks that would have been added:")
+        for t in found_tracks:
+            print(f"  {t['artist']} - {t['title']} ({t['videoId']})")
+        print("--- DAILY PLAYLIST CRON COMPLETE (auth failed, skipped playlist creation) ---")
+        return
+
+    if not found_tracks:
+        print("No tracks found on YTMusic, skipping playlist creation")
+        print("--- DAILY PLAYLIST CRON COMPLETE ---")
+        return
+
+    # 5. Create playlist
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    playlist_name = f"Daily Jazz Discoveries {today_str}"
+
+    try:
+        playlist_id = ytm.create_playlist(
+            playlist_name,
+            description=f"Daily jazz discoveries curated from your taste profile — {today_str}"
+        )
+        print(f"Created playlist: {playlist_name} ({playlist_id})")
+    except Exception as e:
+        print(f"Playlist creation failed: {e}")
+        return
+
+    # 6. Add tracks to playlist
+    video_ids = [t["videoId"] for t in found_tracks]
+    try:
+        ytm.add_playlist_items(playlist_id, video_ids)
+        print(f"Added {len(video_ids)} tracks to playlist")
+    except Exception as e:
+        print(f"Adding tracks to playlist failed: {e}")
+
+    playlist_url = f"https://music.youtube.com/playlist?list={playlist_id}"
+
+    # 7. Post to Discord webhook
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if webhook_url:
+        try:
+            track_lines = "\n".join(
+                f"• **{t['artist']}** — *{t['title']}*  _{t['connection']}_"
+                for t in found_tracks
+            )
+            message = (
+                f"## 🎵 Daily Jazz Discoveries — {today_str}\n\n"
+                f"**Playlist:** {playlist_url}\n\n"
+                f"{track_lines}"
+            )
+            async with httpx.AsyncClient(timeout=30.0) as hx:
+                await hx.post(webhook_url, json={"content": message[:1900]})
+        except Exception as e:
+            print(f"Discord webhook post failed: {e}")
+    else:
+        print("DISCORD_WEBHOOK_URL not set, skipping webhook post")
+
+    print("--- DAILY PLAYLIST CRON COMPLETE ---")
+
+
 # --- WEEKLY HERALD CRON (Sunday 10:00 UTC) ---
 
 @app.function(secrets=secrets, schedule=modal.Cron("0 10 * * 0"), timeout=300)

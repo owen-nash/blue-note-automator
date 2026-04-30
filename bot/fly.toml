@@ -1,0 +1,25 @@
+app = "blue-note-bot"
+primary_region = "ord"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  MODAL_DISCOVER_URL = "https://owen-nash1306--blue-note-intelligence-discover.modal.run"
+  MODAL_HERALD_URL = "https://owen-nash1306--blue-note-intelligence-curate-herald.modal.run"
+
+[[mounts]]
+  source = "bot_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1

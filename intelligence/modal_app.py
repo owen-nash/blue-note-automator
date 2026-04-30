@@ -158,3 +158,40 @@ async def curate_herald(payload: dict):
         )
         return extract_json(res.choices[0].message.content).get("selected_articles", [])
     except: return []
+
+
+# --- TASTE SYNC CRON (every 6 hours) ---
+
+@app.function(secrets=secrets, schedule=modal.Cron("0 */6 * * *"), timeout=120)
+async def sync_taste():
+    from mem0 import MemoryClient
+    import pylast
+
+    print("--- TASTE SYNC START ---")
+
+    api_key = os.environ["LASTFM_API_KEY"]
+    api_secret = os.environ["LASTFM_API_SECRET"]
+    lastfm_user = os.environ["LASTFM_USER"]
+    taste_user_id = os.environ.get("TASTE_USER_ID", "taste_profile")
+
+    network = pylast.LastFMNetwork(api_key=api_key, api_secret=api_secret)
+    user = network.get_user(lastfm_user)
+
+    recent_tracks = user.get_recent_tracks(limit=50)
+
+    artists = set()
+    for track in recent_tracks:
+        try:
+            artists.add(track.track.artist.name)
+        except Exception:
+            pass
+
+    print(f"Synced {len(artists)} unique artists from last {len(recent_tracks)} scrobbles")
+
+    m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
+    m0.add(
+        f"Current taste profile artists: {', '.join(sorted(artists))}",
+        user_id=taste_user_id
+    )
+
+    print("--- TASTE SYNC COMPLETE ---")

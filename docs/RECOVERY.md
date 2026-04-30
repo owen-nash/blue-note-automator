@@ -1,53 +1,51 @@
 # Blue Note Automator — Recovery & State Document
 
-> Generated: 2026-04-30T05:30:00Z
-> Purpose: If the agent disconnects or runs out of tokens, this file contains
-> everything needed to resume from scratch.
+> Generated: 2026-04-30T21:30:00Z
 
-## 1. Server
+## Server
+- **IP:** 207.246.90.230 | **SSH:** ssh root@207.246.90.230 (password: TempPass123!)
+- **OS:** Arch Linux, Go 1.26.2, Python 3.14.4, Node v25.9.0, Kilo v7.2.31
 
-- **IP:** 207.246.90.230
-- **SSH:** ssh -i ~/.ssh/id_ed25519 root@207.246.90.230
-- **OS:** Arch Linux x86_64, 3.8GB RAM, 75GB disk + 11GB swap
-
-### Dev Tools
-- Go 1.26.2, Python 3.14.4, Node v25.9.0, git 2.54, Kilo CLI v7.2.31
-
-### Git Auth
-- Credential helper in ~/.git-credentials
-- Remote: https://github.com/owen-nash/blue-note-automator
-
-## 2. Gas Town
-
-- **Root:** /opt/gastown
+## Gas Town — `/opt/gastown`
 - **CLI:** gt v1.0.1, bd v1.0.3, dolt v1.86.6
-- **PATH:** /root/go/bin:/usr/local/bin:/root/go/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/bin
+- **Default agent:** `kilo` (DeepSeek V4 Flash via KiloCode)
+- **Worker agent:** `modal-worker` (Qwen3.6-35B-A3B on Modal L4, $0.96/hr)
 
 ### Agents
-| Name | Model | Purpose |
-|------|-------|---------|
-| kilo (default) | moonshotai/kimi-k2.6 | Mayor orchestration |
-| kilo-flash | deepseek/deepseek-v4-flash | Affordable coding |
+| Name | Model | Provider |
+|------|-------|----------|
+| `kilo` (default, Mayor) | DeepSeek V4 Flash | KiloCode |
+| `kilo-flash` | DeepSeek V4 Flash | KiloCode |
+| `modal-worker` | Qwen3.6-35B-A3B (MoE) | Modal L4 |
 
-### Rigs: blue_note_automator, budget_platform, poetry_factory
+### Modal Deployments
+| App | Model | GPU | Cost/hr | Endpoint |
+|-----|-------|-----|---------|----------|
+| gastown-qwen | Qwen2.5-Coder-7B (fallback) | T4 | $0.46 | `...-qwen-qwencoder-generate.modal.run` |
+| gastown-worker | Qwen3.6-35B-A3B (workers) | L4 | $0.96 | `...-worker-workermodel-generate.modal.run` |
 
-## 3. Git History (origin/main)
-aaa0bc5 docs: update RECOVERY.md
-785d823 fix: merge sync_taste naming conflict, enrich_taste_profile per-artist, cron calls it
-2f9cd7b docs: add RECOVERY.md with full state capture
-4e339fe feat(bna-bgw): wire Mem0 search into discover (limit=5) and herald (limit=10)
-2b36ce9 fix(bna-fl8): unify user_id plumbing across bot and Modal via TASTE_USER_ID
-02d1b5d feat(bna-lre): add sync_taste() ingestion pipeline
-29a0683 Merge pull request #1 from owen-nash/polecat/chrome/bna-93b (cron)
-cfcc575 feat: add 6hr Modal cron for taste profile sync
-00e3863 chore: update .gitignore
-4415b2b Initial commit
+### Modal Proxy (systemd)
+- Service: `modal-proxy.service` — auto-starts on boot
+- Port: 8000 (127.0.0.1)
+- Routes: Qwen/Worker endpoints by model name
 
-## 4. Beads — All Closed
-- bna-93b: cron task, merged by PR #1
-- bna-lre: sync_taste pipeline, now enrich_taste_profile()
-- bna-fl8: user_id plumbing fixed
-- bna-bgw: Mem0 search wired into discover/herald
+### 25 Beads — All Closed
+All brain fix, feedback, cron, playlist, Mem0, and Modal inference beads complete.
 
-## 5. Resume Quickstart
+## Git — 18 commits on origin/main
+Last commit: `3f00f32` — per-album messages fix
+Worker model files: `gastown_qwen.py`, `gastown_worker.py`, `gastown_dscoder.py`
 
+## Blue Note Automator — OpenRouter (unchanged)
+- discover: Claude Sonnet 4.6 / Opus 4.7
+- herald: Claude Sonnet 4.6
+- sync_taste, crons: Same stack
+
+## Resume
+```bash
+ssh root@207.246.90.230
+export PATH="$HOME/go/bin:/usr/local/bin:/root/.fly/bin:$PATH"
+source /etc/profile.d/kilocode.sh
+cd /opt/gastown
+gt mayor status
+```

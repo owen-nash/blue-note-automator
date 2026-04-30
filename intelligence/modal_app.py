@@ -58,7 +58,8 @@ async def _run_discovery(user_id: str):
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
 
-    all_memories = m0.get_all(filters={"user_id": user_id})
+    raw = m0.get_all(filters={"user_id": user_id})
+    all_memories = raw if isinstance(raw, list) else raw.get('results', [])
     taste_entries = []
     sent_entries = []
     for mem in all_memories:
@@ -282,7 +283,8 @@ async def curate_herald(payload: dict):
     try:
         from mem0 import MemoryClient
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-        results = m0.search(query="jazz taste profile", filters={"user_id": os.environ["TASTE_USER_ID"]}, limit=10)
+        raw_search = m0.search(query="jazz taste profile", filters={"user_id": os.environ["TASTE_USER_ID"]}, limit=10)
+        results = raw_search if isinstance(raw_search, list) else raw_search.get('results', [])
         raw = "\n".join([r["text"] for r in results]) if results else ""
         taste_context = raw[:2000]
     except:
@@ -332,7 +334,8 @@ async def sync_taste():
     print(f"Found {len(all_artists)} unique artists across all scrobbles")
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-    existing = m0.get_all(filters={"user_id": taste_user_id})
+    raw = m0.get_all(filters={"user_id": taste_user_id})
+    existing = raw if isinstance(raw, list) else raw.get('results', [])
     existing_artists = set()
     for mem in existing:
         text = mem.get("text", "")
@@ -428,7 +431,8 @@ async def create_daily_playlist():
     # 1. Query Mem0 for taste entries
     try:
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-        all_memories = m0.get_all(filters={"user_id": user_id})
+        raw = m0.get_all(filters={"user_id": user_id})
+        all_memories = raw if isinstance(raw, list) else raw.get('results', [])
     except Exception as e:
         print(f"Mem0 query failed: {e}")
         return
@@ -602,7 +606,8 @@ async def weekly_herald():
         try:
             from mem0 import MemoryClient
             m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-            results = m0.search(query="jazz taste profile", filters={"user_id": os.environ["TASTE_USER_ID"]}, limit=10)
+            raw_search = m0.search(query="jazz taste profile", filters={"user_id": os.environ["TASTE_USER_ID"]}, limit=10)
+            results = raw_search if isinstance(raw_search, list) else raw_search.get('results', [])
             raw = "\n".join([r["text"] for r in results]) if results else ""
             taste_context = raw[:2000]
         except:

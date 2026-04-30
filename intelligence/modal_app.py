@@ -316,20 +316,8 @@ async def sync_taste():
     network = pylast.LastFMNetwork(api_key=api_key, api_secret=api_secret)
     user = network.get_user(lastfm_user)
 
-    all_artists = set()
-    page = 1
-    while True:
-        tracks = user.get_recent_tracks(limit=200, page=page)
-        if not tracks:
-            break
-        for track in tracks:
-            try:
-                all_artists.add(track.track.artist.name)
-            except Exception:
-                pass
-        if len(tracks) < 200:
-            break
-        page += 1
+    top_artists = user.get_top_artists(limit=200)
+    all_artists = {a.item.name for a in top_artists}
 
     print(f"Found {len(all_artists)} unique artists across all scrobbles")
 

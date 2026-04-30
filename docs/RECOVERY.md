@@ -1,6 +1,6 @@
 # Blue Note Automator — Recovery & State Document
 
-> Generated: 2026-04-30T05:20:00Z
+> Generated: 2026-04-30T05:30:00Z
 > Purpose: If the agent disconnects or runs out of tokens, this file contains
 > everything needed to resume from scratch.
 
@@ -74,11 +74,29 @@ Beads live in `/opt/gastown/blue_note_automator/.beads/` (embedded Dolt).
 - **Status:** Open (needs bead close)  
 - **Commit:** `a8c4a32` — `fix(bna-fl8): unify user_id plumbing`  
 
-### bna-bgw — ✅ COMPLETED
-- **Title:** Wire Mem0 search into discover_and_herald  
-- **Status:** Open (needs bead close)  
-- **Commit:** `16dd624` — `feat(bna-bgw): wire Mem0 search into discover(limit=5) and herald(limit=10)`  
+### bna-lre — ✅ CLOSED
+- **Title:** Build sync_taste ingestion pipeline
+- **Status:** Closed
+- **Commit:** 02d1b5d — 
+- **Note:** Renamed to  in 785d823
 
+### bna-fl8 — ✅ CLOSED
+- **Title:** Fix user_id plumbing
+- **Status:** Closed
+- **Commit:** 2b36ce9 — 
+
+### bna-bgw — ✅ CLOSED
+- **Title:** Wire Mem0 search into discover_and_herald
+- **Status:** Closed
+- **Commit:** 4e339fe — 
+
+### bna-93b — ✅ CLOSED
+- **Title:** Add 6hr cron for taste profile sync
+- **Status:** Closed, PR merged
+- **Commit:** cfcc575 — 
+
+### Fix commit — ✅ PUSHED
+- **Commit:** 785d823 — 
 ### Pending Wisps (open molecules, can be force-closed)
 - `bna-wisp-0qw` — stale (from rust polecat)  
 - `bna-wisp-ee6` — stale (from rust polecat)  

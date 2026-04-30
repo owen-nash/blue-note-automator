@@ -326,30 +326,37 @@ async def daily_discover():
         print(f"Discovery pipeline failed: {e}")
         verified, drafted_message = [], "Discovery pipeline failed today."
 
-    webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
-    async with httpx.AsyncClient(timeout=30.0) as hx:
-        await hx.post(webhook_url, json={"content": drafted_message})
-        for m in verified:
-            embed_payload = {
-                "title": f"🎼 {m['album']}",
-                "description": f"**{m['new_artist']}**",
-                "color": 3447003,
-                "fields": [
-                    {"name": "🤝 Connection", "value": m['connection'], "inline": False}
-                ]
-            }
-            if m.get("personnel"):
-                embed_payload["fields"].append({"name": "🎹 Personnel", "value": ", ".join(m['personnel']), "inline": False})
-            embed_payload["fields"].append({"name": "🎧 Listen", "value": f"[YouTube Music]({m['ytm_link']})", "inline": False})
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        print("DISCORD_WEBHOOK_URL not set, skipping webhook post")
+        return
 
-            components = [{
-                "type": 1,
-                "components": [
-                    {"type": 2, "style": 3, "custom_id": f"like:{m['new_artist']}:{m['album']}", "emoji": {"name": "👍"}},
-                    {"type": 2, "style": 4, "custom_id": f"dislike:{m['new_artist']}:{m['album']}", "emoji": {"name": "👎"}}
-                ]
-            }]
-            await hx.post(webhook_url, json={"embeds": [embed_payload], "components": components})
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as hx:
+            await hx.post(webhook_url, json={"content": drafted_message})
+            for m in verified:
+                embed_payload = {
+                    "title": f"🎼 {m['album']}",
+                    "description": f"**{m['new_artist']}**",
+                    "color": 3447003,
+                    "fields": [
+                        {"name": "🤝 Connection", "value": m['connection'], "inline": False}
+                    ]
+                }
+                if m.get("personnel"):
+                    embed_payload["fields"].append({"name": "🎹 Personnel", "value": ", ".join(m['personnel']), "inline": False})
+                embed_payload["fields"].append({"name": "🎧 Listen", "value": f"[YouTube Music]({m['ytm_link']})", "inline": False})
+
+                components = [{
+                    "type": 1,
+                    "components": [
+                        {"type": 2, "style": 3, "custom_id": f"like:{m['new_artist']}:{m['album']}", "emoji": {"name": "👍"}},
+                        {"type": 2, "style": 4, "custom_id": f"dislike:{m['new_artist']}:{m['album']}", "emoji": {"name": "👎"}}
+                    ]
+                }]
+                await hx.post(webhook_url, json={"embeds": [embed_payload], "components": components})
+    except Exception as e:
+        print(f"Webhook POST failed: {e}")
 
     print("--- DAILY DISCOVER CRON COMPLETE ---")
 
@@ -412,20 +419,27 @@ async def weekly_herald():
         except:
             pass
 
-    webhook_url = os.environ["DISCORD_WEBHOOK_URL"]
-    async with httpx.AsyncClient(timeout=30.0) as hx:
-        if not curated:
-            await hx.post(webhook_url, json={"content": "🗞️ No new high-signal dispatches found this week."})
-        else:
-            await hx.post(webhook_url, json={"content": "## 🎺 The Jazz News Herald (Weekly Edition)"})
-            for art in curated:
-                embed_payload = {
-                    "title": f"🗞️ {art['title']}",
-                    "url": art['link'],
-                    "description": art['summary'],
-                    "color": 15105570,
-                    "fields": [{"name": "📍 Source", "value": art['source'], "inline": True}]
-                }
-                await hx.post(webhook_url, json={"embeds": [embed_payload]})
+    webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+    if not webhook_url:
+        print("DISCORD_WEBHOOK_URL not set, skipping webhook post")
+        return
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as hx:
+            if not curated:
+                await hx.post(webhook_url, json={"content": "🗞️ No new high-signal dispatches found this week."})
+            else:
+                await hx.post(webhook_url, json={"content": "## 🎺 The Jazz News Herald (Weekly Edition)"})
+                for art in curated:
+                    embed_payload = {
+                        "title": f"🗞️ {art['title']}",
+                        "url": art['link'],
+                        "description": art['summary'],
+                        "color": 15105570,
+                        "fields": [{"name": "📍 Source", "value": art['source'], "inline": True}]
+                    }
+                    await hx.post(webhook_url, json={"embeds": [embed_payload]})
+    except Exception as e:
+        print(f"Webhook POST failed: {e}")
 
     print("--- WEEKLY HERALD CRON COMPLETE ---")

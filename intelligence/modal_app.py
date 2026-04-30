@@ -45,58 +45,39 @@ def extract_json(text: str):
 
 # --- TASTE SYNC PIPELINE ---
 
-@app.function(secrets=secrets, timeout=300)
-def sync_taste():
-    import pylast
+@app.function(secrets=secrets, timeout=300, image=modal.Image.debian_slim().pip_install("pylast", "musicbrainzngs"))
+def enrich_taste_profile(artist_name: str):
     import musicbrainzngs
     from mem0 import MemoryClient
 
     musicbrainzngs.set_useragent("BlueNoteAutomator", "1.0", "owen.nash1306@gmail.com")
 
-    network = pylast.LastFMNetwork(
-        api_key=os.environ["LASTFM_API_KEY"],
-        api_secret=os.environ["LASTFM_API_SECRET"]
-    )
-    user = network.get_user(os.environ["LASTFM_USER"])
-    top_artists = [a.item.name for a in user.get_top_artists(limit=50)]
-
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
     user_id = os.environ["TASTE_USER_ID"]
 
-    existing = m0.get_all(user_id=user_id)
-    existing_artists = set()
-    for mem in existing:
-        text = mem.get("text", "")
-        if text.startswith("Artist: "):
-            existing_artists.add(text.split("\n")[0].replace("Artist: ", "").strip())
-
-    for artist_name in top_artists:
-        if artist_name in existing_artists:
-            print(f"Skipping {artist_name} (already ingested)")
-            continue
-        try:
-            mb_results = musicbrainzngs.search_artists(artist=artist_name, limit=1)
-            genres = []
-            if mb_results.get("artist-list"):
-                artist_id = mb_results["artist-list"][0]["id"]
-                mb_artist = musicbrainzngs.get_artist_by_id(artist_id, includes=["tags", "genres"])
-                if "artist" in mb_artist:
-                    tags = mb_artist["artist"].get("tag-list", [])
-                    genres = [t["name"] for t in tags[:5]]
-            genre_str = ", ".join(genres) if genres else "jazz, improvisation"
-            bio = f"they are pioneers of {genre_str}, shaping the sound of modern music"
-            paragraph = (
-                f"Artist: {artist_name}\n\n"
-                f"{artist_name} is a celebrated force in music. "
-                f"Widely recognized for their distinct voice, {bio}. "
-                f"Their body of work spans {genre_str}, drawing from deep tradition "
-                f"while constantly pushing forward. Listening to {artist_name} "
-                f"reveals a masterful command of texture, timing, and emotion."
-            )
-            m0.add(paragraph, user_id=user_id)
-            print(f"Ingested: {artist_name} [{genre_str}]")
-        except Exception as e:
-            print(f"Error ingesting {artist_name}: {e}")
+    try:
+        mb_results = musicbrainzngs.search_artists(artist=artist_name, limit=1)
+        genres = []
+        if mb_results.get("artist-list"):
+            artist_id = mb_results["artist-list"][0]["id"]
+            mb_artist = musicbrainzngs.get_artist_by_id(artist_id, includes=["tags", "genres"])
+            if "artist" in mb_artist:
+                tags = mb_artist["artist"].get("tag-list", [])
+                genres = [t["name"] for t in tags[:5]]
+        genre_str = ", ".join(genres) if genres else "jazz, improvisation"
+        bio = f"they are pioneers of {genre_str}, shaping the sound of modern music"
+        paragraph = (
+            f"Artist: {artist_name}\n\n"
+            f"{artist_name} is a celebrated force in music. "
+            f"Widely recognized for their distinct voice, {bio}. "
+            f"Their body of work spans {genre_str}, drawing from deep tradition "
+            f"while constantly pushing forward. Listening to {artist_name} "
+            f"reveals a masterful command of texture, timing, and emotion."
+        )
+        m0.add(paragraph, user_id=user_id)
+        print(f"Ingested: {artist_name} [{genre_str}]")
+    except Exception as e:
+        print(f"Error ingesting {artist_name}: {e}")
 
 # --- DISCOVERY ENDPOINT ---
 
@@ -230,7 +211,7 @@ async def curate_herald(payload: dict):
 
 # --- TASTE SYNC CRON (every 6 hours) ---
 
-@app.function(secrets=secrets, schedule=modal.Cron("0 */6 * * *"), timeout=120)
+@app.function(secrets=secrets, schedule=modal.Cron("0 */6 * * *"), timeout=120, image=modal.Image.debian_slim().pip_install("pylast", "musicbrainzngs"))
 async def sync_taste():
     from mem0 import MemoryClient
     import pylast
@@ -240,7 +221,7 @@ async def sync_taste():
     api_key = os.environ["LASTFM_API_KEY"]
     api_secret = os.environ["LASTFM_API_SECRET"]
     lastfm_user = os.environ["LASTFM_USER"]
-    taste_user_id = os.environ.get("TASTE_USER_ID", "taste_profile")
+    taste_user_id = os.environ["TASTE_USER_ID"]
 
     network = pylast.LastFMNetwork(api_key=api_key, api_secret=api_secret)
     user = network.get_user(lastfm_user)
@@ -254,12 +235,20 @@ async def sync_taste():
         except Exception:
             pass
 
-    print(f"Synced {len(artists)} unique artists from last {len(recent_tracks)} scrobbles")
+    print(f"Found {len(artists)} unique artists from last {len(recent_tracks)} scrobbles")
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-    m0.add(
-        f"Current taste profile artists: {', '.join(sorted(artists))}",
-        user_id=taste_user_id
-    )
+    existing = m0.get_all(user_id=taste_user_id)
+    existing_artists = set()
+    for mem in existing:
+        text = mem.get("text", "")
+        if text.startswith("Artist: "):
+            existing_artists.add(text.split("\n")[0].replace("Artist: ", "").strip())
+
+    for artist_name in sorted(artists):
+        if artist_name in existing_artists:
+            print(f"Skipping {artist_name} (already ingested)")
+            continue
+        enrich_taste_profile.remote(artist_name)
 
     print("--- TASTE SYNC COMPLETE ---")

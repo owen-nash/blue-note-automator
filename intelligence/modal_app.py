@@ -125,12 +125,29 @@ async def _run_discovery(user_id: str):
         try:
             mb_res = musicbrainzngs.search_releases(artist=m['new_artist'], release=m['album'], limit=1)
             if mb_res['release-count'] > 0:
-                ytm_search = ytm.search(f"{m['new_artist']} {m['album']}", filter="albums")
-                if ytm_search:
-                    m['ytm_link'] = f"https://music.youtube.com/browse/{ytm_search[0]['browseId']}"
+                query = f"{m['new_artist']} {m['album']}"
+                ytm_search_albums = ytm.search(query, filter="albums")
+                if ytm_search_albums and 'browseId' in ytm_search_albums[0]:
+                    m['ytm_link'] = f"https://music.youtube.com/browse/{ytm_search_albums[0]['browseId']}"
                     verified.append(m)
                     try: m0.add(f"Discovered {m['album']}", user_id=user_id)
                     except: pass
+                else:
+                    ytm_search_all = ytm.search(query)
+                    link_found = False
+                    for res in ytm_search_all:
+                        if 'browseId' in res:
+                            m['ytm_link'] = f"https://music.youtube.com/browse/{res['browseId']}"
+                            link_found = True
+                            break
+                        elif 'videoId' in res:
+                            m['ytm_link'] = f"https://music.youtube.com/watch?v={res['videoId']}"
+                            link_found = True
+                            break
+                    if link_found:
+                        verified.append(m)
+                        try: m0.add(f"Discovered {m['album']}", user_id=user_id)
+                        except: pass
             if len(verified) >= 5: break
         except: continue
 
@@ -304,6 +321,7 @@ async def curate_herald(payload: dict):
 @app.function(secrets=secrets, schedule=modal.Cron("0 */6 * * *"), timeout=600)
 async def sync_taste():
     from mem0 import MemoryClient
+    from ytmusicapi import YTMusic
     import pylast
 
     print("--- TASTE SYNC START ---")
@@ -321,10 +339,31 @@ async def sync_taste():
 
     print(f"Found {len(all_artists)} unique artists across all scrobbles")
 
+    # Fetch liked YTMusic albums
+    liked_albums = []
+    try:
+        headers_raw_str = os.environ.get("YT_COOKIE_HEADERS")
+        if headers_raw_str:
+            headers_raw = json.loads(headers_raw_str)
+            YTMusic.setup("headers_auth.json", headers_raw=headers_raw)
+            ytm = YTMusic("headers_auth.json")
+            library_albums = ytm.get_library_albums(limit=100)
+            print(f"Found {len(library_albums)} liked YTMusic albums")
+            for album in library_albums:
+                artists = album.get("artists", [])
+                artist_name = artists[0]["name"] if artists else "Unknown Artist"
+                title = album.get("title", "Unknown Album")
+                liked_albums.append({"artist": artist_name, "title": title})
+                if artist_name != "Unknown Artist":
+                    all_artists.add(artist_name)
+    except Exception as e:
+        print(f"YTMusic library fetch failed: {e}")
+
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
     raw = m0.get_all(filters={"user_id": taste_user_id})
     existing = raw if isinstance(raw, list) else raw.get('results', [])
     existing_artists = set()
+    existing_liked = set()
     for mem in existing:
         text = mem.get("text", "")
         if text.startswith("Artist: "):
@@ -337,6 +376,17 @@ async def sync_taste():
                 existing_artists.add(sent_artist)
             except:
                 pass
+        elif text.startswith("Liked: "):
+            existing_liked.add(text)
+
+    for album in liked_albums:
+        like_text = f"Liked: {album['artist']} - {album['title']}"
+        if like_text not in existing_liked:
+            try:
+                m0.add(like_text, user_id=taste_user_id)
+                print(f"Recorded new YTMusic liked album: {like_text}")
+            except Exception as e:
+                print(f"Failed to record liked album {like_text}: {e}")
 
     for artist_name in sorted(all_artists):
         if artist_name in existing_artists:

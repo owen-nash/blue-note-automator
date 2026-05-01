@@ -58,16 +58,14 @@ async def _run_discovery(user_id: str):
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
 
-    raw = m0.get_all(filters={"user_id": user_id})
-    all_memories = raw if isinstance(raw, list) else raw.get('results', [])
-    taste_entries = []
-    sent_entries = []
-    for mem in all_memories:
-        text = mem.get("text", "")
-        if text.startswith("Artist: ") or text.startswith("Liked:") or text.startswith("Disliked:"):
-            taste_entries.append(text)
-        elif text.startswith("Sent:"):
-            sent_entries.append(text)
+    raw_taste = m0.search(query="jazz taste profile", filters={"user_id": user_id}, limit=5)
+    taste_results = raw_taste if isinstance(raw_taste, list) else raw_taste.get('results', [])
+    taste_entries = [r.get("text", "") for r in taste_results if r.get("text", "")]
+
+    raw_sent = m0.search(query="Sent:", filters={"user_id": user_id}, limit=100)
+    sent_results = raw_sent if isinstance(raw_sent, list) else raw_sent.get('results', [])
+    sent_entries = [r.get("text", "") for r in sent_results if r.get("text", "").startswith("Sent:")]
+
     taste_context = "\n".join(taste_entries) if taste_entries else "Focus on classic hard-bop and post-bop jazz."
 
     three_months_ago = datetime.now() - timedelta(days=90)
@@ -105,7 +103,7 @@ async def _run_discovery(user_id: str):
         "but would likely love based on their taste. Each direction should be a "
         "specific seed_artist (a known artist the user may not have explored) and a "
         "new_artist/album that connects to it. Avoid obvious names already in the taste profile."
-        f"\n\nTaste Profile:\n{taste_context[:3000]}"
+        f"\n\nTaste Profile:\n{taste_context[:2000]}"
         f"{sent_context}"
         "\n\nJSON Output: missions[seed_artist, new_artist, album, connection, personnel, vibe]"
     )
@@ -200,7 +198,7 @@ def enrich_taste_profile(artist_name: str):
 async def discover(payload: dict):
     from fastapi import HTTPException
 
-    print(f"--- DISCOVERY START: {payload.get('user_id')} ---")
+    print(f"--- DISCOVERY START ---")
     user_id = os.environ["TASTE_USER_ID"]
 
     try:
@@ -224,7 +222,6 @@ async def feedback(payload: dict):
     artist = payload.get("artist")
     album = payload.get("album")
     rating = payload.get("rating")
-    user_id = payload.get("user_id")
 
     if not all([artist, album, rating]):
         raise HTTPException(status_code=400, detail="Missing required fields: artist, album, rating")
@@ -235,7 +232,7 @@ async def feedback(payload: dict):
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
         label = "Liked" if rating == "like" else "Disliked"
         text = f"{label}: {artist} - {album}"
-        m0.add(text, user_id=user_id or os.environ["TASTE_USER_ID"])
+        m0.add(text, user_id=os.environ["TASTE_USER_ID"])
         print(f"Feedback recorded: {text}")
     except Exception as e:
         print(f"Feedback Mem0 Error: {e}")
@@ -322,7 +319,7 @@ async def sync_taste():
     print(f"Found {len(all_artists)} unique artists across all scrobbles")
 
     m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-    raw = m0.get_all(filters={"user_id": taste_user_id})
+    raw = m0.search(query="Artist:", filters={"user_id": taste_user_id}, limit=1000)
     existing = raw if isinstance(raw, list) else raw.get('results', [])
     existing_artists = set()
     for mem in existing:
@@ -419,7 +416,7 @@ async def create_daily_playlist():
     # 1. Query Mem0 for taste entries
     try:
         m0 = MemoryClient(api_key=os.environ["MEM0_API_KEY"])
-        raw = m0.get_all(filters={"user_id": user_id})
+        raw = m0.search(query="jazz taste profile", filters={"user_id": user_id}, limit=5)
         all_memories = raw if isinstance(raw, list) else raw.get('results', [])
     except Exception as e:
         print(f"Mem0 query failed: {e}")
@@ -431,7 +428,7 @@ async def create_daily_playlist():
         if text.startswith("Artist: ") or text.startswith("Liked:") or text.startswith("Disliked:"):
             taste_entries.append(text)
 
-    taste_context = "\n".join(taste_entries[:20]) if taste_entries else "Focus on classic hard-bop and post-bop jazz."
+    taste_context = "\n".join(taste_entries)[:2000] if taste_entries else "Focus on classic hard-bop and post-bop jazz."
     print(f"Taste context: {len(taste_entries)} entries")
 
     # 2. Ask Sonnet for track suggestions
@@ -443,7 +440,7 @@ async def create_daily_playlist():
         "through shared personnel, record label, era, or style. "
         "Include a brief connection note for each track. "
         "Do NOT recommend tracks already mentioned in the taste profile."
-        f"\n\nTaste Profile:\n{taste_context[:3000]}"
+        f"\n\nTaste Profile:\n{taste_context[:2000]}"
         "\n\nJSON Output: tracks[artist, title, connection]"
     )
 

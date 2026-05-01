@@ -44,7 +44,7 @@ class JazzBot(discord.Client):
             return await interaction.response.send_message("Feedback service unavailable.", ephemeral=True)
         await interaction.response.defer(ephemeral=True)
         feedback_url = MODAL_DISCOVER_URL.replace("/discover", "/feedback")
-        payload = {"artist": artist, "album": album, "rating": rating, "user_id": str(interaction.user.id)}
+        payload = {"artist": artist, "album": album, "rating": rating}
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(feedback_url, json=payload)
@@ -78,9 +78,7 @@ async def discover_command(interaction: discord.Interaction):
     print(f"TRIGGER: /discover by {interaction.user}")
     
     try:
-        payload = {
-            "user_id": os.getenv("TASTE_USER_ID"),
-        }
+        payload = {}
         
         async with httpx.AsyncClient(timeout=120.0) as client:
             res = await client.post(MODAL_DISCOVER_URL, json=payload)

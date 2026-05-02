@@ -94,7 +94,12 @@ async def discover_command(interaction: discord.Interaction):
             return await interaction.followup.send("🎵 No discoveries found this time.")
 
         count = len(data["missions"])
-        await interaction.followup.send(f"🎵 **{count} new {'discovery' if count == 1 else 'discoveries'}** based on your taste profile:")
+
+        drafted_message = data.get("drafted_message", "")
+        if drafted_message:
+            await interaction.followup.send(drafted_message)
+        else:
+            await interaction.followup.send(f"🎵 **{count} new {'discovery' if count == 1 else 'discoveries'}** based on your taste profile:")
 
         for m in data["missions"]:
             embed = discord.Embed(title=f"🎼 {m['album']}", description=f"**{m['new_artist']}**", color=3447003)

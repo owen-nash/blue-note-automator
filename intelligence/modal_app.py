@@ -237,6 +237,7 @@ async def discover(payload: dict):
 async def feedback(payload: dict):
     from mem0 import MemoryClient
     from fastapi import HTTPException
+    from ytmusicapi import YTMusic
 
     artist = payload.get("artist")
     album = payload.get("album")
@@ -256,6 +257,49 @@ async def feedback(payload: dict):
         print(f"Feedback recorded: {text}")
     except Exception as e:
         print(f"Feedback Mem0 Error: {e}")
+
+    # Like/Dislike on YTMusic
+    try:
+        headers_raw_str = os.environ.get("YT_COOKIE_HEADERS")
+        if headers_raw_str:
+            # ytmusicapi setup expects raw string headers, not a dict
+            if headers_raw_str.strip().startswith("{"):
+                # If it's a JSON dict (like how it's used elsewhere in the file), we bypass setup and use it directly
+                headers_dict = json.loads(headers_raw_str)
+                with open("headers_auth.json", "w") as f:
+                    json.dump(headers_dict, f)
+            else:
+                YTMusic.setup("headers_auth.json", headers_raw=headers_raw_str)
+
+            ytm = YTMusic("headers_auth.json")
+
+            ytm_rating = "LIKE" if rating == "like" else "DISLIKE"
+            query = f"{artist} {album}"
+
+            ytm_search_albums = ytm.search(query, filter="albums")
+            rated = False
+
+            if ytm_search_albums and 'browseId' in ytm_search_albums[0]:
+                browse_id = ytm_search_albums[0]['browseId']
+                try:
+                    album_data = ytm.get_album(browse_id)
+                    audio_playlist_id = album_data.get('audioPlaylistId')
+                    if audio_playlist_id:
+                        ytm.rate_playlist(audio_playlist_id, ytm_rating)
+                        print(f"Rated playlist {audio_playlist_id} as {ytm_rating}")
+                        rated = True
+                except Exception as e:
+                    print(f"Failed to rate album playlist directly: {e}")
+
+            if not rated:
+                ytm_search_songs = ytm.search(query, filter="songs")
+                if ytm_search_songs and 'videoId' in ytm_search_songs[0]:
+                    video_id = ytm_search_songs[0]['videoId']
+                    ytm.rate_song(video_id, ytm_rating)
+                    print(f"Rated song {video_id} as {ytm_rating}")
+
+    except Exception as e:
+        print(f"Feedback YTMusic Error: {e}")
 
     return {"status": "ok"}
 
@@ -445,7 +489,11 @@ async def daily_discover():
                         {"type": 2, "style": 4, "custom_id": f"dislike:{m['new_artist']}:{m['album']}", "emoji": {"name": "👎"}}
                     ]
                 }]
-                await hx.post(webhook_url, json={"embeds": [embed_payload], "components": components})
+
+                res = await hx.post(webhook_url, json={"embeds": [embed_payload], "components": components})
+                if res.status_code >= 400:
+                    print(f"Webhook POST failed with {res.status_code}, retrying without components")
+                    await hx.post(webhook_url, json={"embeds": [embed_payload]})
     except Exception as e:
         print(f"Webhook POST failed: {e}")
 

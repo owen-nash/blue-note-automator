@@ -74,7 +74,7 @@ async def _run_discovery(user_id: str):
     re_sendable = set()
     for sent_text in sent_entries:
         try:
-            parts = sent_text.replace("Sent: ", "", 1).split(" by ", 1)
+            parts = sent_text.replace("Sent: ", "", 1).rsplit(" by ", 1)
             if len(parts) >= 2:
                 album_name = parts[0].strip()
                 rest = parts[1].strip()
@@ -94,7 +94,7 @@ async def _run_discovery(user_id: str):
     sent_for_prompt = [s for s in sent_entries if s not in re_sendable]
     sent_context = ""
     if sent_for_prompt:
-        sent_context = "\n\nPREVIOUSLY SENT - DO NOT RECOMMEND:\n" + "\n".join(sent_for_prompt)
+        sent_context = "\n\nCRITICAL: DO NOT RECOMMEND ANY OF THESE PREVIOUSLY SENT ALBUMS:\n" + "\n".join(sent_for_prompt)
 
     client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
 

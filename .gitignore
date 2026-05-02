@@ -24,16 +24,7 @@ sa-key.json
 # Local logs
 *.log
 
-# Gas Town (added by gt)
-.runtime/
-.claude/
-.logs/
-state.json
-CLAUDE.md
-CLAUDE.local.md
 
-# Gas Town beads (local only)
-.beads/
 
 # Secrets - DO NOT COMMIT
 secrets.env

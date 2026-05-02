@@ -121,7 +121,10 @@ async def discover_command(interaction: discord.Interaction):
                         f.value = f.value[:97] + "..."
 
             view = FeedbackView(m['new_artist'], m['album'])
-            await interaction.channel.send(embed=embed, view=view)
+            try:
+                await interaction.channel.send(embed=embed, view=view)
+            except discord.HTTPException:
+                await interaction.followup.send(f"🎼 **{m['album']}** by **{m['new_artist']}**... (truncated)", ephemeral=True)
             
     except Exception as e:
         print(f"ERROR /discover: {e}")
